@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treemark"
+version = "0.1.0"
+description = "Generate clean project trees for Markdown, READMEs, docs, and terminals."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Kritagya Dubey" },
+]
+keywords = ["cli", "markdown", "readme", "project-tree", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+treemark = "treemark.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kritagyadubey/treemark"
+Repository = "https://github.com/kritagyadubey/treemark"
+Issues = "https://github.com/kritagyadubey/treemark/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
