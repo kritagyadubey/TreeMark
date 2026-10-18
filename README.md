@@ -1,5 +1,10 @@
 # TreeMark
 
+[![PyPI version](https://img.shields.io/pypi/v/treemark.svg)](https://pypi.org/project/treemark/)
+[![Python versions](https://img.shields.io/pypi/pyversions/treemark.svg)](https://pypi.org/project/treemark/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-zero-green.svg)](#installation)
+
 Generate clean project trees for Markdown, READMEs, docs, and terminals.
 
 ## Why TreeMark
@@ -14,6 +19,8 @@ You're writing a README and need a project tree. You could manually type it out,
 
 ## Installation
 
+Requires Python 3.10 or newer. No runtime dependencies.
+
 ```bash
 pip install treemark
 ```
@@ -21,29 +28,39 @@ pip install treemark
 Or install from source:
 
 ```bash
-git clone https://github.com/kritagyadubey/treemark.git
-cd treemark
+git clone https://github.com/kritagyadubey/TreeMark.git
+cd TreeMark
 pip install -e .
 ```
 
 ## Quick Start
 
+Run TreeMark on this repository to see it produce a real tree:
+
 ```bash
-cd my-project
-treemark
+treemark --markdown --ignore treemark.egg-info
 ```
 
-Output:
+Output (the `--ignore` flag skips the `treemark.egg-info` build metadata folder that is committed in this repo):
 
-```
-my-project/
+```text
+TreeMark/
 ├── src/
-│   ├── main.py
-│   └── utils.py
+│   └── treemark/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py
+│       ├── ignore.py
+│       ├── output.py
+│       └── tree.py
 ├── tests/
-│   └── test_main.py
-├── README.md
-└── pyproject.toml
+│   ├── test_cli.py
+│   ├── test_ignore.py
+│   ├── test_output.py
+│   └── test_tree.py
+├── LICENSE
+├── pyproject.toml
+└── README.md
 ```
 
 ## Examples
@@ -159,13 +176,20 @@ You can use `--ignore-file` to specify a custom ignore file, or `--no-default-ig
 treemark --markdown
 ```
 
-This wraps the tree in a fenced code block:
+This wraps the tree in a fenced code block. Running `treemark --markdown --depth 2` on this repository:
 
 ````markdown
 ```text
-my-project/
+TreeMark/
 ├── src/
-│   └── main.py
+│   └── treemark/
+├── tests/
+│   ├── test_cli.py
+│   ├── test_ignore.py
+│   ├── test_output.py
+│   └── test_tree.py
+├── LICENSE
+├── pyproject.toml
 └── README.md
 ```
 ````
@@ -178,7 +202,29 @@ Copy the output directly into your README. The fence automatically uses a longer
 treemark --emoji
 ```
 
-Adds small emojis for common file types:
+Adds small emojis for common file types. This repository rendered with emojis (same tree as Quick Start):
+
+```text
+TreeMark/
+├── 📁 src/
+│   └── 📁 treemark/
+│       ├── 🐍 __init__.py
+│       ├── 🐍 __main__.py
+│       ├── 🐍 cli.py
+│       ├── 🐍 ignore.py
+│       ├── 🐍 output.py
+│       └── 🐍 tree.py
+├── 📁 tests/
+│   ├── 🐍 test_cli.py
+│   ├── 🐍 test_ignore.py
+│   ├── 🐍 test_output.py
+│   └── 🐍 test_tree.py
+├── LICENSE
+├── ⚙️ pyproject.toml
+└── 📝 README.md
+```
+
+Recognized file types:
 
 - `.py` files
 - `.js` / `.ts` / `.html` / `.css` files
@@ -206,8 +252,8 @@ python -m treemark
 Clone and install in development mode:
 
 ```bash
-git clone https://github.com/kritagyadubey/treemark.git
-cd treemark
+git clone https://github.com/kritagyadubey/TreeMark.git
+cd TreeMark
 pip install -e .
 ```
 
@@ -217,9 +263,19 @@ pip install -e .
 pytest
 ```
 
+## Known Limitations
+
+- Symlinked directories are shown in the tree but not scanned; they are marked with `-> (symlink)` and treated as leaves.
+- Only a `.treeignore` in the directory being scanned is loaded automatically. Nested `.treeignore` files in subdirectories are not applied.
+
 ## Contributing
 
 Contributions are welcome. Keep things simple. If you're adding a feature, add a test for it.
+
+- Report bugs and suggest features in [GitHub Issues](https://github.com/kritagyadubey/TreeMark/issues). Include your OS, Python version, the command you ran, and what you expected versus what you got.
+- Open a pull request from a fork. Keep changes small and focused.
+- Run the test suite before submitting: `pytest` (run it from the repository root after `pip install -e .`).
+- By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
 
 ## Privacy
 
