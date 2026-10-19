@@ -393,3 +393,167 @@ class TestOutputExclusion:
         tree = build_tree(tmp_path, TreeOptions(output_file=str(other / "tree.md")))
         names = _collect_names(tree)
         assert "main.py" in names
+
+
+class TestIgnorePathsAreRootRelative:
+    """Ignore path patterns must resolve against the scan root, not the parent
+    of the directory currently being walked (which made them depth-dependent)."""
+
+    def test_deep_path_pattern(self, tmp_path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "b").mkdir()
+        (tmp_path / "a" / "b" / "c.txt").write_text("")
+        (tmp_path / "a" / "b" / "keep.txt").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(ignore_patterns=["a/b/c.txt"]))
+        a = next(c for c in tree.children if c.name == "a")
+        b = next(c for c in a.children if c.name == "b")
+        names = [c.name for c in b.children]
+        assert "c.txt" not in names
+        assert "keep.txt" in names
+
+    def test_root_level_path_pattern(self, tmp_path):
+        (tmp_path / "top.txt").write_text("")
+        (tmp_path / "other.txt").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(ignore_patterns=["top.txt"]))
+        names = [c.name for c in tree.children]
+        assert "top.txt" not in names
+        assert "other.txt" in names
+
+    def test_pattern_is_depth_independent(self, tmp_path):
+        """The same pattern must match the same shape at any depth."""
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "target.txt").write_text("")
+        (tmp_path / "a" / "b").mkdir()
+        (tmp_path / "a" / "b" / "target.txt").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(ignore_patterns=["*/target.txt"]))
+        assert [n for n in _collect_names(tree) if n == "target.txt"] == []
+
+    def test_directory_only_pattern_ignores_only_directories(self, tmp_path):
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "dist" / "out.js").write_text("")
+        (tmp_path / "dist.py").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(ignore_patterns=["dist/"]))
+        names = [c.name for c in tree.children]
+        assert "dist" not in names
+        assert "dist.py" in names  # a file must not be caught by dist/
+
+
+class TestFilesOnlyPruning:
+    """--files-only must hide directories with no files anywhere below them."""
+
+    def test_dir_holding_only_empty_dirs_is_hidden(self, tmp_path):
+        (tmp_path / "real").mkdir()
+        (tmp_path / "real" / "x.py").write_text("")
+        (tmp_path / "onlyempty").mkdir()
+        (tmp_path / "onlyempty" / "inner").mkdir()
+
+        names = _collect_names(build_tree(tmp_path, TreeOptions(files_only=True)))
+        assert "onlyempty" not in names
+        assert "inner" not in names
+        assert "real" in names
+        assert "x.py" in names
+
+    def test_dir_holding_only_ignored_files_is_hidden(self, tmp_path):
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "logs" / "debug.log").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(files_only=True, ignore_patterns=["*.log"]))
+        assert "logs" not in _collect_names(tree)
+
+    def test_ancestor_of_deep_file_is_kept(self, tmp_path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "b").mkdir()
+        (tmp_path / "a" / "b" / "c").mkdir()
+        (tmp_path / "a" / "b" / "c" / "deep.txt").write_text("")
+
+        names = _collect_names(build_tree(tmp_path, TreeOptions(files_only=True)))
+        assert "a" in names and "b" in names and "c" in names and "deep.txt" in names
+
+    def test_files_only_respects_depth_limit(self, tmp_path):
+        """A directory whose only contents fall beyond --depth is pruned.
+
+        Nothing under a/ is reachable at depth 1, so showing it would render a
+        misleading empty leaf.
+        """
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "b").mkdir()
+        (tmp_path / "a" / "b" / "deep.txt").write_text("")
+
+        tree = build_tree(tmp_path, TreeOptions(files_only=True, depth=1))
+        assert [c.name for c in tree.children] == []
+
+    def test_files_only_keeps_ancestors_within_depth(self, tmp_path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "b").mkdir()
+        (tmp_path / "a" / "b" / "deep.txt").write_text("")
+
+        names = _collect_names(build_tree(tmp_path, TreeOptions(files_only=True, depth=3)))
+        assert "a" in names and "b" in names and "deep.txt" in names
+
+
+class TestSymlinkClassification:
+    """Symlinked directories must be classified as directories.
+
+    ``is_symlink()`` is faked so these run on Windows too, where creating real
+    symlinks needs elevated privileges.
+    """
+
+    def _setup(self, tmp_path, monkeypatch, name="linkdir"):
+        (tmp_path / "realdir").mkdir()
+        (tmp_path / "realdir" / "a.txt").write_text("")
+        (tmp_path / name).mkdir()
+        (tmp_path / name).joinpath("inner.txt").write_text("")
+        (tmp_path / "file.txt").write_text("")
+
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path, "is_symlink", lambda self: True if self.name == name else original(self)
+        )
+
+    def test_symlinked_dir_is_a_dir_and_is_not_followed(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        tree = build_tree(tmp_path, TreeOptions())
+        link = next(c for c in tree.children if c.name == "linkdir")
+        assert link.is_dir is True
+        assert link.is_symlink is True
+        assert link.children == []
+
+    def test_symlinked_dir_sorted_after_real_dirs_before_files(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        names = [c.name for c in build_tree(tmp_path, TreeOptions()).children]
+        assert names == ["realdir", "linkdir", "file.txt"]
+
+    def test_symlinked_dir_shown_under_dirs_only(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        names = [c.name for c in build_tree(tmp_path, TreeOptions(dirs_only=True)).children]
+        assert "linkdir" in names
+        assert "file.txt" not in names
+
+    def test_symlinked_dir_hidden_under_files_only(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        assert "linkdir" not in _collect_names(build_tree(tmp_path, TreeOptions(files_only=True)))
+
+    def test_symlinked_dir_rendered_with_trailing_slash(self, tmp_path, monkeypatch):
+        from treemark.output import render_tree
+
+        self._setup(tmp_path, monkeypatch)
+        out = render_tree(build_tree(tmp_path, TreeOptions()))
+        assert "linkdir/ -> (symlink)" in out
+
+    def test_symlink_to_file_behaves_like_a_file(self, tmp_path, monkeypatch):
+        (tmp_path / "realfile.txt").write_text("")
+        (tmp_path / "link.txt").write_text("")
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path, "is_symlink", lambda self: True if self.name == "link.txt" else original(self)
+        )
+
+        names = [c.name for c in build_tree(tmp_path, TreeOptions(dirs_only=True)).children]
+        assert "link.txt" not in names  # dirs-only hides files, symlinked files included
+
+        names = [c.name for c in build_tree(tmp_path, TreeOptions()).children]
+        assert "link.txt" in names

@@ -39,6 +39,42 @@ class TestShouldIgnore:
     def test_empty_patterns(self):
         assert not should_ignore("anything", "anything", patterns=[], default_ignores=None)
 
+    def test_pattern_is_case_sensitive_everywhere(self):
+        """Matching must not depend on the host OS's fnmatch case folding.
+
+        ``fnmatch.fnmatch`` folds case on Windows but not elsewhere, which made
+        a single .treeignore file behave differently per platform.
+        """
+        patterns = ["*.log"]
+        assert should_ignore("debug.log", "debug.log", patterns=patterns, default_ignores=None)
+        assert not should_ignore("debug.LOG", "debug.LOG", patterns=patterns, default_ignores=None)
+
+    def test_default_ignores_are_case_sensitive(self):
+        assert not should_ignore("Node_Modules", "Node_Modules", patterns=[], default_ignores=DEFAULT_IGNORES)
+
+    def test_default_ignores_support_globs(self):
+        assert should_ignore(
+            "treemark.egg-info", "treemark.egg-info", patterns=[], default_ignores=DEFAULT_IGNORES
+        )
+        assert not should_ignore("metadata.txt", "metadata.txt", patterns=[], default_ignores=DEFAULT_IGNORES)
+
+    def test_trailing_slash_matches_directories_only(self):
+        patterns = ["dist/"]
+        assert should_ignore("dist", "dist", patterns=patterns, default_ignores=None, is_dir=True)
+        assert not should_ignore("dist", "dist", patterns=patterns, default_ignores=None, is_dir=False)
+
+    def test_trailing_slash_still_matches_path_patterns(self):
+        patterns = ["build/"]
+        assert should_ignore("build", "src/build", patterns=patterns, default_ignores=None, is_dir=True)
+
+    def test_trailing_slash_on_path_pattern(self):
+        patterns = ["src/generated/"]
+        assert should_ignore("generated", "src/generated", patterns=patterns, default_ignores=None, is_dir=True)
+        assert not should_ignore("generated", "src/generated", patterns=patterns, default_ignores=None, is_dir=False)
+
+    def test_empty_after_stripping_slash_is_ignored(self):
+        assert not should_ignore("anything", "anything", patterns=["/"], default_ignores=None)
+
 
 class TestLoadTreeignore:
     def test_load_treeignore_file(self, tmp_path):

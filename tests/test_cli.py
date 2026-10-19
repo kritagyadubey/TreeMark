@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from treemark.cli import main
+from treemark.cli import _prefer_utf8_streams, main
 
 
 class TestCLIBasic:
@@ -20,11 +20,13 @@ class TestCLIBasic:
         assert "treemark" in captured.out.lower()
 
     def test_cli_version(self, capsys):
+        from treemark import __version__
+
         with pytest.raises(SystemExit) as exc_info:
             main(["--version"])
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.1.0" in captured.out
+        assert __version__ in captured.out
 
     def test_cli_default_directory(self, tmp_path, capsys):
         (tmp_path / "file.txt").write_text("")
@@ -236,3 +238,85 @@ class TestCLIPrivate:
         main(["--plain", str(tmp_path)])
         captured = capsys.readouterr()
         assert "file.txt" in captured.out
+
+
+class TestCLIMutuallyExclusiveModes:
+    def test_files_only_with_dirs_only_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--files-only", "--dirs-only", str(tmp_path)])
+        assert exc_info.value.code != 0
+
+    def test_files_only_with_no_files_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--files-only", "--no-files", str(tmp_path)])
+        assert exc_info.value.code != 0
+
+    def test_dirs_only_with_no_files_allowed(self, tmp_path, capsys):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("")
+        main(["--dirs-only", "--no-files", str(tmp_path)])
+        assert "src" in capsys.readouterr().out
+
+    def test_error_message_mentions_both_flags(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            main(["--files-only", "--dirs-only", str(tmp_path)])
+        captured = capsys.readouterr()
+        assert "--files-only" in captured.err
+
+
+class TestPreferUtf8Streams:
+    """Redirected output used to fall back to a legacy code page on Windows,
+    which replaced box-drawing characters and emoji with '?'."""
+
+    def test_reconfigures_streams_that_support_it(self, monkeypatch):
+        class Recorder:
+            def __init__(self):
+                self.calls = []
+
+            def reconfigure(self, **kwargs):
+                self.calls.append(kwargs)
+
+        out, err = Recorder(), Recorder()
+        monkeypatch.setattr("treemark.cli.sys.stdout", out)
+        monkeypatch.setattr("treemark.cli.sys.stderr", err)
+
+        _prefer_utf8_streams()
+
+        expected = [{"encoding": "utf-8", "errors": "replace"}]
+        assert out.calls == expected
+        assert err.calls == expected
+
+    def test_streams_without_reconfigure_are_left_alone(self, monkeypatch):
+        class Bare:
+            pass
+
+        monkeypatch.setattr("treemark.cli.sys.stdout", Bare())
+        monkeypatch.setattr("treemark.cli.sys.stderr", Bare())
+        _prefer_utf8_streams()  # must not raise
+
+    def test_reconfigure_failure_is_swallowed(self, monkeypatch):
+        class Closed:
+            def reconfigure(self, **kwargs):
+                raise ValueError("I/O operation on closed file")
+
+        monkeypatch.setattr("treemark.cli.sys.stdout", Closed())
+        monkeypatch.setattr("treemark.cli.sys.stderr", Closed())
+        _prefer_utf8_streams()  # must not raise
+
+
+class TestCLIRootLabel:
+    def test_root_label_ends_with_slash(self, tmp_path, capsys):
+        (tmp_path / "a.txt").write_text("")
+        main([str(tmp_path)])
+        first = capsys.readouterr().out.split("\n", 1)[0]
+        # resolve() may realign the path (e.g. /var -> /private/var on macOS)
+        expected = tmp_path.resolve().name
+        assert first == f"{expected}/"
+
+    def test_root_label_is_a_directory(self, tmp_path, capsys):
+        """Scanning a real subdirectory must label it with its own name."""
+        (tmp_path / "project").mkdir()
+        (tmp_path / "project" / "a.txt").write_text("")
+        main([str(tmp_path / "project")])
+        first = capsys.readouterr().out.split("\n", 1)[0]
+        assert first == "project/"

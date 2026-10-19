@@ -65,13 +65,44 @@ def build_tree(root: Path, opts: TreeOptions) -> Entry:
             pass  # output file is outside the scan root
 
     root_entry = Entry(name=root.name, is_dir=True, is_symlink=False)
-    _scan_dir(root, root_entry, opts, patterns, default_ignores, exclude_path, 0)
+    _scan_dir(root, root_entry, root, opts, patterns, default_ignores, exclude_path, 0)
+
+    if opts.files_only:
+        _prune_dirs_without_files(root_entry)
+
     return root_entry
+
+
+def _rel_posix(entry: Path, root: Path) -> str:
+    """Return the entry's POSIX-style path relative to the scan root.
+
+    Using the scan root (rather than the parent of the directory being walked)
+    keeps ignore patterns depth-independent: ``a/b/c.txt`` always refers to the
+    same entry no matter how deeply nested it is.
+    """
+    try:
+        return entry.relative_to(root).as_posix()
+    except ValueError:
+        return entry.name
+
+
+def _prune_dirs_without_files(entry: Entry) -> None:
+    """Drop directories that contain no files anywhere below them.
+
+    Used by ``--files-only`` so that a directory holding only other (possibly
+    empty) directories is not shown. Runs bottom-up over the already-built
+    tree, so it costs a single pass rather than re-walking each subtree.
+    """
+    for child in entry.children:
+        if child.is_dir:
+            _prune_dirs_without_files(child)
+    entry.children = [child for child in entry.children if not child.is_dir or child.children]
 
 
 def _scan_dir(
     dirpath: Path,
     parent: Entry,
+    root: Path,
     opts: TreeOptions,
     patterns: list[str],
     default_ignores: set[str] | None,
@@ -84,11 +115,13 @@ def _scan_dir(
 
     try:
         entries = list(dirpath.iterdir())
-    except PermissionError:
-        print(f"Warning: cannot read directory: {dirpath}", file=sys.stderr)
+    except OSError as exc:
+        detail = f" ({exc.strerror})" if getattr(exc, "strerror", None) else ""
+        print(f"Warning: cannot read directory: {dirpath}{detail}", file=sys.stderr)
         return
 
-    dirs: list[Path] = []
+    real_dirs: list[Path] = []
+    symlink_dirs: list[Path] = []
     files: list[Path] = []
 
     for entry in entries:
@@ -102,62 +135,42 @@ def _scan_dir(
         if not opts.show_all and name.startswith("."):
             continue
 
-        # Build relative POSIX path for pattern matching
-        try:
-            rel_posix = str(entry.relative_to(dirpath.parent).as_posix())
-        except ValueError:
-            rel_posix = name
-
-        if should_ignore(name, rel_posix, patterns=patterns, default_ignores=default_ignores):
+        if should_ignore(
+            name,
+            _rel_posix(entry, root),
+            patterns=patterns,
+            default_ignores=default_ignores,
+            is_dir=entry.is_dir(),
+        ):
             continue
 
-        is_symlink = entry.is_symlink()
-        is_dir = entry.is_dir() if not is_symlink else False
-
-        if is_dir and not is_symlink:
-            dirs.append(entry)
-        elif is_dir and is_symlink:
-            # Symlink to directory: treat as leaf, don't descend
-            parent.children.append(Entry(name=name, is_dir=True, is_symlink=True))
+        # Classify. Symlinks are never followed, so they can only be leaves.
+        if entry.is_symlink():
+            if entry.is_dir():
+                symlink_dirs.append(entry)
+            else:
+                # Symlink to a file (or a broken link) behaves like a file.
+                files.append(entry)
+        elif entry.is_dir():
+            real_dirs.append(entry)
         else:
             files.append(entry)
 
     # Sort: directories first, then files; alphabetical case-insensitive
-    dirs.sort(key=lambda p: p.name.lower())
+    real_dirs.sort(key=lambda p: p.name.lower())
+    symlink_dirs.sort(key=lambda p: p.name.lower())
     files.sort(key=lambda p: p.name.lower())
 
-    for d in dirs:
+    for d in real_dirs:
         child = Entry(name=d.name, is_dir=True, is_symlink=False)
-        if not opts.files_only or _dir_has_visible_files(d, opts, patterns, default_ignores, exclude_path):
-            parent.children.append(child)
-        _scan_dir(d, child, opts, patterns, default_ignores, exclude_path, current_depth + 1)
+        parent.children.append(child)
+        _scan_dir(d, child, root, opts, patterns, default_ignores, exclude_path, current_depth + 1)
 
-    for f in files:
-        if not opts.dirs_only:
+    # Symlinked directories are shown but never descended into.
+    for d in symlink_dirs:
+        if not opts.files_only:
+            parent.children.append(Entry(name=d.name, is_dir=True, is_symlink=True))
+
+    if not opts.dirs_only:
+        for f in files:
             parent.children.append(Entry(name=f.name, is_dir=False, is_symlink=f.is_symlink()))
-
-
-def _dir_has_visible_files(
-    dirpath: Path,
-    opts: TreeOptions,
-    patterns: list[str],
-    default_ignores: set[str] | None,
-    exclude_path: Path | None,
-) -> bool:
-    """Check if a directory contains any visible files (used for --files-only)."""
-    try:
-        for entry in dirpath.iterdir():
-            if not opts.show_all and entry.name.startswith("."):
-                continue
-            if exclude_path is not None and entry.resolve() == exclude_path:
-                continue
-            rel_posix = str(entry.relative_to(dirpath.parent).as_posix())
-            if should_ignore(entry.name, rel_posix, patterns=patterns, default_ignores=default_ignores):
-                continue
-            if entry.is_file():
-                return True
-            if entry.is_dir():
-                return True
-    except PermissionError:
-        return False
-    return False

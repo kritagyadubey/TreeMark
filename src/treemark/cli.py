@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from treemark import __version__
@@ -10,8 +11,29 @@ from treemark.output import format_markdown, render_tree, safe_print
 from treemark.tree import TreeOptions, build_tree
 
 
+def _prefer_utf8_streams() -> None:
+    """Make redirected stdout/stderr use UTF-8 instead of the legacy locale encoding.
+
+    On a real console Python already writes through the native console API, so
+    Unicode is fine. When output is redirected to a pipe or file on Windows the
+    stream falls back to a code page such as cp1252, which silently replaced
+    every box-drawing character and emoji with ``?``. Reconfiguring to UTF-8
+    (with replacement as a last resort) keeps the tree readable either way.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError, UnicodeError):
+            # Already closed, or a stream that doesn't support reconfiguration.
+            pass
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for the treemark CLI."""
+    _prefer_utf8_streams()
     args = _parse_args(argv)
 
     opts = TreeOptions(
@@ -37,9 +59,13 @@ def main(argv: list[str] | None = None) -> None:
 
     tree_text = render_tree(tree, use_emoji=opts.use_emoji, use_ascii=opts.use_ascii)
 
-    # Build full output: root line + children
-    root_name = root.name + "/"
-    full_tree = root_name + ("\n" + tree_text if tree_text else "")
+    # A filesystem root ("/" or "C:\\") has an empty .name, so fall back to the
+    # full path rather than printing a bare "/" as the header.
+    root_label = root.name or str(root)
+    if not root_label.endswith(("/", "\\")):
+        root_label += "/"
+
+    full_tree = root_label + ("\n" + tree_text if tree_text else "")
 
     if opts.markdown:
         full_tree = format_markdown(full_tree)
@@ -153,6 +179,9 @@ examples:
 
     if args.depth is not None and args.depth < 0:
         parser.error("depth must be a non-negative integer")
+
+    if args.files_only and (args.dirs_only or args.no_files):
+        parser.error("--files-only cannot be combined with --dirs-only/--no-files")
 
     return args
 

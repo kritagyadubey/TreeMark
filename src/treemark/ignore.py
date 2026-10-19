@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 from pathlib import Path
 
-# Built-in directories to ignore by default.
+# Built-in names to ignore by default.
 DEFAULT_IGNORES: set[str] = {
     ".git",
     "node_modules",
@@ -18,6 +18,13 @@ DEFAULT_IGNORES: set[str] = {
     ".cache",
     ".mypy_cache",
     ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".nox",
+    ".eggs",
+    "*.egg-info",
+    ".idea",
+    ".vscode",
 }
 
 
@@ -57,16 +64,39 @@ def should_ignore(
     *,
     patterns: list[str],
     default_ignores: set[str] | None,
+    is_dir: bool = False,
 ) -> bool:
     """Check whether an entry should be ignored.
 
-    Checks against both the bare name and the relative POSIX-style path.
+    Checks against both the bare name and the POSIX-style path relative to the
+    scan root.
+
+    Matching uses :func:`fnmatch.fnmatchcase` so that a given pattern behaves
+    identically on Windows, macOS and Linux (``fnmatch.fnmatch`` silently folds
+    case on Windows, which made ``.treeignore`` files platform-dependent).
+
+    A pattern ending in ``/`` only matches directories, e.g. ``dist/``.
     """
-    if default_ignores is not None and name in default_ignores:
-        return True
+    if default_ignores is not None:
+        for pat in default_ignores:
+            if _matches_pattern(name, rel_path, pat, is_dir=is_dir):
+                return True
 
     for pat in patterns:
-        if fnmatch.fnmatch(name, pat) or fnmatch.fnmatch(rel_path, pat):
+        if _matches_pattern(name, rel_path, pat, is_dir=is_dir):
             return True
 
     return False
+
+
+def _matches_pattern(name: str, rel_path: str, pattern: str, *, is_dir: bool) -> bool:
+    """Match a single ignore pattern against an entry name and relative path."""
+    if pattern.endswith("/"):
+        # Trailing slash = directory-only pattern (gitignore convention).
+        if not is_dir:
+            return False
+        pattern = pattern.rstrip("/")
+        if not pattern:
+            return False
+
+    return fnmatch.fnmatchcase(name, pattern) or fnmatch.fnmatchcase(rel_path, pattern)

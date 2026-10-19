@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treemark"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generate clean project trees for Markdown, READMEs, docs, and terminals."
 readme = "README.md"
 license = "MIT"
@@ -22,6 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Documentation",
     "Topic :: Utilities",
 ]
@@ -30,9 +32,9 @@ classifiers = [
 treemark = "treemark.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/kritagyadubey/treemark"
-Repository = "https://github.com/kritagyadubey/treemark"
-Issues = "https://github.com/kritagyadubey/treemark/issues"
+Homepage = "https://github.com/kritagyadubey/TreeMark"
+Repository = "https://github.com/kritagyadubey/TreeMark"
+Issues = "https://github.com/kritagyadubey/TreeMark/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

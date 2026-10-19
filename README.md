@@ -14,8 +14,9 @@ You're writing a README and need a project tree. You could manually type it out,
 - Zero runtime dependencies
 - Works on Windows, macOS, and Linux
 - Outputs plain text, Markdown, or ASCII
-- Ignores common junk by default (`.git`, `node_modules`, `__pycache__`)
+- Ignores common junk by default (`.git`, `node_modules`, `__pycache__`, `*.egg-info`)
 - Respects `.treeignore` files
+- Ignore rules match the same way on every platform
 
 ## Installation
 
@@ -38,13 +39,13 @@ pip install -e .
 Run TreeMark on this repository to see it produce a real tree:
 
 ```bash
-treemark --markdown --ignore treemark.egg-info
+treemark --markdown
 ```
 
-Output (the `--ignore` flag skips the `treemark.egg-info` build metadata folder that is committed in this repo):
+Output:
 
 ```text
-TreeMark/
+treemark/
 ├── src/
 │   └── treemark/
 │       ├── __init__.py
@@ -58,10 +59,15 @@ TreeMark/
 │   ├── test_ignore.py
 │   ├── test_output.py
 │   └── test_tree.py
+├── CHANGELOG.md
 ├── LICENSE
 ├── pyproject.toml
-└── README.md
+├── README.md
+└── requirements-dev.txt
 ```
+
+Build output such as `__pycache__/` and `*.egg-info/` is ignored by default, so
+there is nothing to clean up before running it on a working checkout.
 
 ## Examples
 
@@ -146,6 +152,9 @@ treemark --output tree.md
 | `--version`, `-v` | Show version |
 | `--help`, `-h` | Show help |
 
+`--files-only` and `--dirs-only` (or its `--no-files` alias) are mutually
+exclusive; combining them is an error rather than a silent winner.
+
 ## .treeignore
 
 TreeMark supports `.treeignore` files. If a `.treeignore` file exists in the directory you're scanning, it will be loaded automatically.
@@ -165,10 +174,28 @@ Rules:
 - Lines starting with `#` are comments
 - Exact names are supported
 - Glob patterns (`*.log`, `test_*`) work via `fnmatch`
-- Patterns are checked against the entry name and its relative path
+- Patterns are checked against the entry name and its path relative to the
+  directory you are scanning, so `data/*.csv` matches the same entry at any
+  nesting level
+- Matching is **case-sensitive on every platform**; a `.treeignore` behaves the
+  same on Windows, macOS and Linux
+- A trailing `/` matches directories only: `dist/` ignores the `dist` directory
+  but not a `dist.py` file
 - Negation patterns (`!foo`) are not supported
 
 You can use `--ignore-file` to specify a custom ignore file, or `--no-default-ignore` to disable the built-in ignore list entirely.
+
+### Default ignores
+
+Unless `--no-default-ignore` is set, these names are ignored automatically:
+
+```
+.git            node_modules    __pycache__     .venv
+venv            env             dist            build
+.cache          .mypy_cache     .pytest_cache   .ruff_cache
+.tox            .nox            .eggs           *.egg-info
+.idea           .vscode
+```
 
 ## Markdown Output
 
@@ -180,7 +207,7 @@ This wraps the tree in a fenced code block. Running `treemark --markdown --depth
 
 ````markdown
 ```text
-TreeMark/
+treemark/
 ├── src/
 │   └── treemark/
 ├── tests/
@@ -188,13 +215,17 @@ TreeMark/
 │   ├── test_ignore.py
 │   ├── test_output.py
 │   └── test_tree.py
+├── CHANGELOG.md
 ├── LICENSE
 ├── pyproject.toml
-└── README.md
+├── README.md
+└── requirements-dev.txt
 ```
 ````
 
-Copy the output directly into your README. The fence automatically uses a longer delimiter if the tree itself contains triple backticks.
+Copy the output directly into your README. The fence is sized to its content —
+it grows to one backtick longer than the longest backtick run inside the tree,
+so a file name containing backticks can never break out of the block.
 
 ## Emoji Mode
 
@@ -202,10 +233,11 @@ Copy the output directly into your README. The fence automatically uses a longer
 treemark --emoji
 ```
 
-Adds small emojis for common file types. This repository rendered with emojis (same tree as Quick Start):
+Adds small emojis for common file types. This repository rendered with emojis
+(same tree as Quick Start):
 
 ```text
-TreeMark/
+treemark/
 ├── 📁 src/
 │   └── 📁 treemark/
 │       ├── 🐍 __init__.py
@@ -219,17 +251,25 @@ TreeMark/
 │   ├── 🐍 test_ignore.py
 │   ├── 🐍 test_output.py
 │   └── 🐍 test_tree.py
+├── 📝 CHANGELOG.md
 ├── LICENSE
 ├── ⚙️ pyproject.toml
-└── 📝 README.md
+├── 📝 README.md
+└── 📄 requirements-dev.txt
 ```
 
 Recognized file types:
 
-- `.py` files
-- `.js` / `.ts` / `.html` / `.css` files
-- `.json` / `.md` / `.yml` / `.yaml` / `.toml` files
-- `Dockerfile`
+- **Python** `.py`
+- **JavaScript / TypeScript** `.js` `.jsx` `.ts` `.tsx` `.vue` `.svelte`
+- **Web** `.html` `.css` `.scss`
+- **Markup & config** `.json` `.md` `.rst` `.txt` `.yml` `.yaml` `.toml` `.ini` `.cfg` `.conf` `.xml` `.lock`
+- **Shell** `.sh` `.bash` `.zsh` `.ps1` `.bat` `.cmd`
+- **Systems & compiled** `.go` `.rs` `.c` `.h` `.cpp` `.hpp` `.cs`
+- **Other languages** `.java` `.kt` `.swift` `.rb` `.php` `.lua` `.r` `.sql` `.ipynb`
+- **Images & archives** `.png` `.jpg` `.jpeg` `.gif` `.svg` `.ico` `.zip` `.gz` `.tar`
+- **Logs** `.log`
+- **Special names** `Dockerfile`, `docker-compose.yml`, `docker-compose.yaml`, `Makefile`, `GNUmakefile`
 
 Emoji mode only affects display. It does not change sorting, ignore behavior, or path handling.
 
@@ -259,9 +299,16 @@ pip install -e .
 
 ## Testing
 
+Install the test dependencies and run the suite:
+
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
+
+TreeMark has no third-party runtime dependencies, so `requirements-dev.txt`
+only lists the test runner. The suite covers tree building, sorting, depth
+limits, ignore matching, symlink handling, output formatting, and the CLI.
 
 ## Known Limitations
 
@@ -287,6 +334,10 @@ TreeMark runs entirely on your local machine. It:
 - Does not send telemetry
 - Does not collect analytics
 - Does not require an internet connection
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
 
 ## License
 

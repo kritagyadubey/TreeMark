@@ -6,19 +6,66 @@ import sys
 
 from treemark.tree import Entry
 
-# Emoji map for common file types
+# Emoji map for common file types. Keys are matched by suffix (dot-prefixed)
+# or, for extension-less names, exactly.
 EMOJI_MAP: dict[str, str] = {
     ".py": "\U0001f40d",    # snake
     ".js": "\U0001f7e8",    # yellow square
+    ".jsx": "\U0001f7e8",
     ".ts": "\U0001f4d8",    # blue book
+    ".tsx": "\U0001f4d8",
+    ".vue": "\U0001f7e9",
+    ".svelte": "\U0001f7e9",
     ".html": "\U0001f310",  # globe
     ".css": "\U0001f3a8",   # artist palette
+    ".scss": "\U0001f3a8",
     ".json": "\U0001f4e6",  # package
     ".md": "\U0001f4dd",    # memo
+    ".rst": "\U0001f4dd",
+    ".txt": "\U0001f4c4",   # page facing up
     ".yml": "\u2699\ufe0f", # gear
-    ".yaml": "\u2699\ufe0f",# gear
-    ".toml": "\u2699\ufe0f",# gear
-    "Dockerfile": "\U0001f433",  # whale
+    ".yaml": "\u2699\ufe0f",
+    ".toml": "\u2699\ufe0f",
+    ".ini": "\u2699\ufe0f",
+    ".cfg": "\u2699\ufe0f",
+    ".conf": "\u2699\ufe0f",
+    ".xml": "\u2699\ufe0f",
+    ".lock": "\U0001f512",  # lock
+    ".sh": "\U0001f4df",    # telephone receiver
+    ".bash": "\U0001f4df",
+    ".zsh": "\U0001f4df",
+    ".ps1": "\U0001f4df",
+    ".bat": "\U0001f4df",
+    ".cmd": "\U0001f4df",
+    ".go": "\U0001f42d",    # mouse face
+    ".rs": "\U0001f980",    # crab
+    ".java": "\U0001f34a",  # orange
+    ".kt": "\U0001f34a",
+    ".c": "\U0001f5a5\ufe0f",   # desktop computer
+    ".h": "\U0001f5a5\ufe0f",
+    ".cpp": "\U0001f5a5\ufe0f",
+    ".hpp": "\U0001f5a5\ufe0f",
+    ".cs": "\U0001f5a5\ufe0f",
+    ".rb": "\U0001f7e3",    # green square
+    ".php": "\U0001f49b",   # yellow heart
+    ".swift": "\U0001f34a",
+    ".sql": "\U0001f5c3\ufe0f",  # card file box
+    ".ipynb": "\U0001f9e0", # brain
+    ".r": "\U0001f7e2",
+    ".lua": "\U0001f422",
+    ".png": "\U0001f5bc\ufe0f",  # framed picture
+    ".jpg": "\U0001f5bc\ufe0f",
+    ".jpeg": "\U0001f5bc\ufe0f",
+    ".gif": "\U0001f5bc\ufe0f",
+    ".svg": "\U0001f5bc\ufe0f",
+    ".ico": "\U0001f5bc\ufe0f",
+    ".pdf": "\U0001f4d5",   # closed book
+    ".zip": "\U0001f9f0",   # toolbox
+    ".gz": "\U0001f9f0",
+    ".tar": "\U0001f9f0",
+    ".log": "\U0001f4dc",   # scroll
+    "Makefile": "\U0001f6e0\ufe0f",  # hammer and wrench
+    "Dockerfile": "\U0001f433",      # whale
 }
 
 # Unicode box-drawing characters
@@ -80,33 +127,60 @@ def _render_entry(
 
 
 def _get_emoji(filename: str) -> str:
-    """Get the emoji for a filename based on its extension."""
+    """Get the emoji for a filename based on its special name or extension.
+
+    Extension-less special names are checked first: ``docker-compose.yml``
+    would otherwise be swallowed by the ``.yml`` rule and never reach the
+    Docker-specific mapping.
+    """
     lower = filename.lower()
+    if lower in ("dockerfile", "docker-compose.yml", "docker-compose.yaml"):
+        return EMOJI_MAP["Dockerfile"]
+    if lower in ("makefile", "gnumakefile"):
+        return EMOJI_MAP["Makefile"]
+
     for ext, emoji in EMOJI_MAP.items():
         if ext.startswith(".") and lower.endswith(ext):
             return emoji
-    # Check special filenames
-    if filename in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml"):
-        return EMOJI_MAP.get("Dockerfile", "")
     return ""
 
 
 def format_markdown(tree_text: str) -> str:
     """Wrap tree output in a markdown fenced code block.
 
-    Automatically uses longer fence if the tree contains triple backticks.
+    The fence is one backtick longer than the longest backtick run inside the
+    tree, so a file whose name contains backticks can never break out of the
+    block. It is never shorter than three backticks.
     """
-    fence = "```"
-    if "```" in tree_text:
-        fence = "`````"
+    fence = "`" * max(3, _longest_backtick_run(tree_text) + 1)
     return f"{fence}text\n{tree_text}\n{fence}"
 
 
+def _longest_backtick_run(text: str) -> int:
+    """Return the length of the longest consecutive run of backticks."""
+    longest = current = 0
+    for char in text:
+        if char == "`":
+            current += 1
+            if current > longest:
+                longest = current
+        else:
+            current = 0
+    return longest
+
+
 def safe_print(text: str, file=None) -> None:
-    """Print text, falling back to ASCII-safe encoding on terminals that can't handle Unicode."""
+    """Print text, falling back to readable output on terminals that can't handle Unicode.
+
+    If the terminal's encoding rejects a character (common with emoji on the
+    Windows console, which defaults to a legacy code page), the line is
+    re-encoded with replacement characters instead of crashing or dumping raw
+    UTF-8 bytes to the screen.
+    """
     target = file or sys.stdout
     try:
         target.write(text + "\n")
     except UnicodeEncodeError:
-        # Fallback: encode with replacement characters
-        target.buffer.write((text + "\n").encode("utf-8", errors="replace"))
+        encoding = getattr(target, "encoding", None) or "utf-8"
+        fallback = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        target.write(fallback + "\n")

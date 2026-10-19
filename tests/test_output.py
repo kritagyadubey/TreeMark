@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from treemark.output import format_markdown, render_tree
+import pytest
+
+from treemark.output import EMOJI_MAP, _get_emoji, format_markdown, render_tree, safe_print
 from treemark.tree import Entry
 
 
@@ -60,11 +62,76 @@ class TestFormatMarkdown:
     def test_markdown_fence_escaping(self):
         tree_text = "project/\n├── ```\n└── test"
         md = format_markdown(tree_text)
-        # Should use longer fence to avoid conflict
-        assert md.startswith("`````")
-        assert md.endswith("\n`````")
+        # The fence must be longer than the longest backtick run it contains.
+        assert md.startswith("````text\n")
+        assert md.endswith("\n````")
+        assert tree_text in md
+
+    @pytest.mark.parametrize("run", range(0, 12))
+    def test_fence_is_always_longer_than_content(self, run):
+        """A file name of N backticks must never break out of the code block."""
+        tree_text = "project/\n" + "`" * run
+        md = format_markdown(tree_text)
+        fence = md.split("\n", 1)[0]
+        expected = "`" * max(3, run + 1) + "text"
+        assert fence == expected
+        assert tree_text in md
+
+    def test_fence_never_shorter_than_three(self):
+        md = format_markdown("project/\n└── a.md")
+        assert md.startswith("```text\n")
 
     def test_no_triple_backticks(self):
         tree_text = "project/\n├── src/\n└── test"
         md = format_markdown(tree_text)
         assert md.startswith("```text\n")
+
+
+class TestGetEmoji:
+    def test_known_extensions(self):
+        assert _get_emoji("main.py") == EMOJI_MAP[".py"]
+        assert _get_emoji("README.md") == EMOJI_MAP[".md"]
+        assert _get_emoji("app.ts") == EMOJI_MAP[".ts"]
+
+    def test_extension_matching_is_case_insensitive(self):
+        assert _get_emoji("MAIN.PY") == EMOJI_MAP[".py"]
+        assert _get_emoji("readme.MD") == EMOJI_MAP[".md"]
+
+    def test_special_filenames_case_insensitive(self):
+        assert _get_emoji("Dockerfile") == EMOJI_MAP["Dockerfile"]
+        assert _get_emoji("dockerfile") == EMOJI_MAP["Dockerfile"]
+        assert _get_emoji("Makefile") == EMOJI_MAP["Makefile"]
+        assert _get_emoji("docker-compose.yml") == EMOJI_MAP["Dockerfile"]
+
+    def test_no_emoji_for_unknown(self):
+        assert _get_emoji("mystery.zzz") == ""
+        assert _get_emoji("LICENSE") == ""
+
+    def test_suffix_does_not_match_partial_name(self):
+        # "app.rsx" must not be treated as a Rust file
+        assert _get_emoji("app.rsx") == ""
+
+
+class TestSafePrint:
+    def test_writes_text_and_newline(self, capsys):
+        safe_print("hello")
+        assert capsys.readouterr().out == "hello\n"
+
+    def test_falls_back_when_encoding_rejects_characters(self, capsys):
+        """A terminal that can't encode emoji must not crash or dump raw bytes."""
+
+        class Fussy:
+            encoding = "ascii"
+
+            def __init__(self):
+                self.chunks = []
+
+            def write(self, s):
+                s.encode(self.encoding)  # raise for non-ASCII, like a real stream
+                self.chunks.append(s)
+
+        target = Fussy()
+        safe_print("ok -> 🐍", file=target)
+        assert len(target.chunks) == 1
+        assert target.chunks[0] == "ok -> ?\n"
+        assert "�" not in target.chunks[0]

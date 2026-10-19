@@ -1,0 +1,3 @@
+# TreeMark has no third-party runtime dependencies; it is standard library only.
+# This file lists what you need to run the test suite.
+pytest>=7.0
